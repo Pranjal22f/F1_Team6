@@ -1,0 +1,962 @@
+import { Device, NetworkLink, VLAN, ACLRule, ExperimentRecord } from '../types/index.js';
+import { execute, queryAll } from './db.js';
+
+export const INITIAL_VLANS: VLAN[] = [
+  {
+    id: 10,
+    name: 'CSE_Department',
+    department: 'Computer Science & Engineering',
+    ipv4Subnet: '10.10.0.0/24',
+    ipv4Gateway: '10.10.0.1',
+    ipv6Subnet: '2001:db8:acad:10::/64',
+    ipv6Gateway: '2001:db8:acad:10::1',
+    description: 'CSE Labs, Coding Stations, and Project Workstations',
+    color: '#3B82F6',
+  },
+  {
+    id: 20,
+    name: 'ECE_Department',
+    department: 'Electronics & Communication',
+    ipv4Subnet: '10.20.0.0/24',
+    ipv4Gateway: '10.20.0.1',
+    ipv6Subnet: '2001:db8:acad:20::/64',
+    ipv6Gateway: '2001:db8:acad:20::1',
+    description: 'ECE Hardware & Signal Processing Lab',
+    color: '#8B5CF6',
+  },
+  {
+    id: 30,
+    name: 'Administration',
+    department: 'Administrative & Finance Office',
+    ipv4Subnet: '10.30.0.0/24',
+    ipv4Gateway: '10.30.0.1',
+    ipv6Subnet: '2001:db8:acad:30::/64',
+    ipv6Gateway: '2001:db8:acad:30::1',
+    description: 'Finance, Registrar, Exam Cell, and Executive Offices',
+    color: '#EF4444',
+  },
+  {
+    id: 40,
+    name: 'Faculty_Staff',
+    department: 'Faculty Chambers',
+    ipv4Subnet: '10.40.0.0/24',
+    ipv4Gateway: '10.40.0.1',
+    ipv6Subnet: '2001:db8:acad:40::/64',
+    ipv6Gateway: '2001:db8:acad:40::1',
+    description: 'Professors, Research Scholars, and Department Faculty',
+    color: '#10B981',
+  },
+  {
+    id: 50,
+    name: 'Student_Network',
+    department: 'Student Dorms & Wi-Fi',
+    ipv4Subnet: '10.50.0.0/24',
+    ipv4Gateway: '10.50.0.1',
+    ipv6Subnet: '2001:db8:acad:50::/64',
+    ipv6Gateway: '2001:db8:acad:50::1',
+    description: 'Student Wi-Fi and Bring-Your-Own-Device (BYOD) access',
+    color: '#F59E0B',
+  },
+  {
+    id: 60,
+    name: 'Central_Library',
+    department: 'Library & Information Resource',
+    ipv4Subnet: '10.60.0.0/24',
+    ipv4Gateway: '10.60.0.1',
+    ipv6Subnet: '2001:db8:acad:60::/64',
+    ipv6Gateway: '2001:db8:acad:60::1',
+    description: 'Digital Library Catalogue, Journals, and OPAC Terminals',
+    color: '#06B6D4',
+  },
+  {
+    id: 70,
+    name: 'Data_Center_Servers',
+    department: 'Campus Data Center',
+    ipv4Subnet: '10.70.0.0/24',
+    ipv4Gateway: '10.70.0.1',
+    ipv6Subnet: '2001:db8:acad:70::/64',
+    ipv6Gateway: '2001:db8:acad:70::1',
+    description: 'Enterprise Server Farm: Web, DNS, DHCP, FTP, Mail, SNMP',
+    color: '#EC4899',
+  },
+  {
+    id: 80,
+    name: 'IoT_Sensors',
+    department: 'Campus Facilities & Automation',
+    ipv4Subnet: '10.80.0.0/24',
+    ipv4Gateway: '10.80.0.1',
+    ipv6Subnet: '2001:db8:acad:80::/64',
+    ipv6Gateway: '2001:db8:acad:80::1',
+    description: 'Smart campus energy sensors, CCTV cameras, and meters',
+    color: '#14B8A6',
+  },
+  {
+    id: 99,
+    name: 'Network_Management',
+    department: 'IT Infrastructure & NOC',
+    ipv4Subnet: '10.99.0.0/24',
+    ipv4Gateway: '10.99.0.1',
+    ipv6Subnet: '2001:db8:acad:99::/64',
+    ipv6Gateway: '2001:db8:acad:99::1',
+    description: 'Out-of-band switch/router management and Syslog/SNMP trap',
+    color: '#6366F1',
+  },
+];
+
+export const INITIAL_DEVICES: Device[] = [
+  // ISP / Internet
+  {
+    id: 'isp-gateway',
+    name: 'ISP Gateway (Internet)',
+    type: 'isp',
+    role: 'Tier-1 Internet Service Provider Uplink',
+    ipAddress: '203.0.113.1',
+    macAddress: '00:1A:2B:3C:4D:01',
+    status: 'online',
+    position: { x: 500, y: 50 },
+    interfaces: [
+      { id: 'if-isp-wan', name: 'GigabitEthernet0/0', ipAddress: '203.0.113.1', subnetMask: '255.255.255.0', macAddress: '00:1A:2B:3C:4D:01', status: 'up' },
+    ],
+  },
+  // Core Routers (Triangle Redundant Topology)
+  {
+    id: 'router-r1',
+    name: 'Edge Router R1',
+    type: 'router',
+    role: 'Border Gateway & Firewall NAT Router',
+    ipAddress: '203.0.113.2',
+    macAddress: '00:1A:2B:3C:4D:11',
+    status: 'online',
+    position: { x: 500, y: 170 },
+    interfaces: [
+      { id: 'if-r1-wan', name: 'Gi0/0 (WAN)', ipAddress: '203.0.113.2', subnetMask: '255.255.255.0', macAddress: '00:1A:2B:3C:4D:11', status: 'up' },
+      { id: 'if-r1-r2', name: 'Gi0/1 (To R2)', ipAddress: '10.0.12.1', subnetMask: '255.255.255.252', macAddress: '00:1A:2B:3C:4D:12', status: 'up' },
+      { id: 'if-r1-r3', name: 'Gi0/2 (To R3 - Redundant)', ipAddress: '10.0.13.1', subnetMask: '255.255.255.252', macAddress: '00:1A:2B:3C:4D:13', status: 'up' },
+    ],
+  },
+  {
+    id: 'router-r2',
+    name: 'Core Router R2',
+    type: 'router',
+    role: 'Primary Campus Core Distribution Router',
+    ipAddress: '10.0.12.2',
+    macAddress: '00:1A:2B:3C:4D:21',
+    status: 'online',
+    position: { x: 280, y: 300 },
+    interfaces: [
+      { id: 'if-r2-r1', name: 'Gi0/1 (To R1)', ipAddress: '10.0.12.2', subnetMask: '255.255.255.252', macAddress: '00:1A:2B:3C:4D:21', status: 'up' },
+      { id: 'if-r2-r3', name: 'Gi0/2 (To R3 Inter-Core)', ipAddress: '10.0.23.1', subnetMask: '255.255.255.252', macAddress: '00:1A:2B:3C:4D:22', status: 'up' },
+      { id: 'if-r2-swcore', name: 'Gi0/0 (To Core Switch)', ipAddress: '10.0.1.1', subnetMask: '255.255.255.0', macAddress: '00:1A:2B:3C:4D:23', status: 'up' },
+      { id: 'if-r2-swserver', name: 'Gi0/3 (To Server Farm)', ipAddress: '10.70.0.1', subnetMask: '255.255.255.0', macAddress: '00:1A:2B:3C:4D:24', status: 'up' },
+    ],
+  },
+  {
+    id: 'router-r3',
+    name: 'Core Router R3',
+    type: 'router',
+    role: 'Secondary Campus Core & Academic Router',
+    ipAddress: '10.0.13.2',
+    macAddress: '00:1A:2B:3C:4D:31',
+    status: 'online',
+    position: { x: 720, y: 300 },
+    interfaces: [
+      { id: 'if-r3-r1', name: 'Gi0/2 (To R1 - Redundant)', ipAddress: '10.0.13.2', subnetMask: '255.255.255.252', macAddress: '00:1A:2B:3C:4D:31', status: 'up' },
+      { id: 'if-r3-r2', name: 'Gi0/1 (To R2 Inter-Core)', ipAddress: '10.0.23.2', subnetMask: '255.255.255.252', macAddress: '00:1A:2B:3C:4D:32', status: 'up' },
+      { id: 'if-r3-swacad', name: 'Gi0/0 (To Academic Switch)', ipAddress: '10.0.2.1', subnetMask: '255.255.255.0', macAddress: '00:1A:2B:3C:4D:33', status: 'up' },
+    ],
+  },
+  // Distribution & Access Switches
+  {
+    id: 'sw-core',
+    name: 'Distribution Switch SW-Core',
+    type: 'core_switch',
+    role: 'Central Campus Layer-3 Distribution Switch',
+    ipAddress: '10.0.1.2',
+    macAddress: '00:1A:2B:3C:5D:01',
+    status: 'online',
+    position: { x: 220, y: 450 },
+    interfaces: [
+      { id: 'if-swcore-r2', name: 'TenGi0/1', macAddress: '00:1A:2B:3C:5D:01', status: 'up' },
+      { id: 'if-swcore-cse', name: 'Gi0/1', macAddress: '00:1A:2B:3C:5D:02', status: 'up' },
+      { id: 'if-swcore-ece', name: 'Gi0/2', macAddress: '00:1A:2B:3C:5D:03', status: 'up' },
+      { id: 'if-swcore-admin', name: 'Gi0/3', macAddress: '00:1A:2B:3C:5D:04', status: 'up' },
+    ],
+  },
+  {
+    id: 'sw-server',
+    name: 'Server Farm Switch SW-Server',
+    type: 'switch',
+    role: 'Data Center High-Density Switch',
+    ipAddress: '10.70.0.2',
+    macAddress: '00:1A:2B:3C:5D:10',
+    status: 'online',
+    position: { x: 450, y: 450 },
+    interfaces: [
+      { id: 'if-swsrv-r2', name: 'TenGi0/1', macAddress: '00:1A:2B:3C:5D:10', status: 'up' },
+      { id: 'if-swsrv-dhcp', name: 'Fa0/1', macAddress: '00:1A:2B:3C:5D:11', status: 'up' },
+      { id: 'if-swsrv-dns', name: 'Fa0/2', macAddress: '00:1A:2B:3C:5D:12', status: 'up' },
+      { id: 'if-swsrv-web', name: 'Fa0/3', macAddress: '00:1A:2B:3C:5D:13', status: 'up' },
+      { id: 'if-swsrv-ftp', name: 'Fa0/4', macAddress: '00:1A:2B:3C:5D:14', status: 'up' },
+      { id: 'if-swsrv-mail', name: 'Fa0/5', macAddress: '00:1A:2B:3C:5D:15', status: 'up' },
+      { id: 'if-swsrv-mon', name: 'Fa0/6', macAddress: '00:1A:2B:3C:5D:16', status: 'up' },
+    ],
+  },
+  {
+    id: 'sw-academic',
+    name: 'Academic Switch SW-Academic',
+    type: 'switch',
+    role: 'Faculty & Library Distribution Switch',
+    ipAddress: '10.0.2.2',
+    macAddress: '00:1A:2B:3C:5D:20',
+    status: 'online',
+    position: { x: 750, y: 450 },
+    interfaces: [
+      { id: 'if-swacad-r3', name: 'TenGi0/1', macAddress: '00:1A:2B:3C:5D:20', status: 'up' },
+      { id: 'if-swacad-fac', name: 'Fa0/1', macAddress: '00:1A:2B:3C:5D:21', status: 'up' },
+      { id: 'if-swacad-lib', name: 'Fa0/2', macAddress: '00:1A:2B:3C:5D:22', status: 'up' },
+      { id: 'if-swacad-ap', name: 'Fa0/3', macAddress: '00:1A:2B:3C:5D:23', status: 'up' },
+    ],
+  },
+  {
+    id: 'sw-cse',
+    name: 'CSE Switch SW-CSE',
+    type: 'switch',
+    role: 'Department Access Switch',
+    vlanId: 10,
+    macAddress: '00:1A:2B:3C:5D:30',
+    status: 'online',
+    position: { x: 80, y: 580 },
+    interfaces: [
+      { id: 'if-swcse-up', name: 'Gi0/1', macAddress: '00:1A:2B:3C:5D:30', status: 'up' },
+      { id: 'if-swcse-pc1', name: 'Fa0/1', macAddress: '00:1A:2B:3C:5D:31', status: 'up' },
+    ],
+  },
+  {
+    id: 'sw-ece',
+    name: 'ECE Switch SW-ECE',
+    type: 'switch',
+    role: 'Department Access Switch',
+    vlanId: 20,
+    macAddress: '00:1A:2B:3C:5D:40',
+    status: 'online',
+    position: { x: 220, y: 580 },
+    interfaces: [
+      { id: 'if-swece-up', name: 'Gi0/1', macAddress: '00:1A:2B:3C:5D:40', status: 'up' },
+      { id: 'if-swece-pc1', name: 'Fa0/1', macAddress: '00:1A:2B:3C:5D:41', status: 'up' },
+    ],
+  },
+  {
+    id: 'sw-admin',
+    name: 'Admin Switch SW-Admin',
+    type: 'switch',
+    role: 'Administrative Access Switch',
+    vlanId: 30,
+    macAddress: '00:1A:2B:3C:5D:50',
+    status: 'online',
+    position: { x: 360, y: 580 },
+    interfaces: [
+      { id: 'if-swadmin-up', name: 'Gi0/1', macAddress: '00:1A:2B:3C:5D:50', status: 'up' },
+      { id: 'if-swadmin-pc1', name: 'Fa0/1', macAddress: '00:1A:2B:3C:5D:51', status: 'up' },
+    ],
+  },
+  {
+    id: 'ap-campus',
+    name: 'Campus Wi-Fi AP',
+    type: 'access_point',
+    role: 'Dual-Band 802.11ax Campus Access Point',
+    macAddress: '00:1A:2B:3C:6D:01',
+    status: 'online',
+    position: { x: 920, y: 580 },
+    interfaces: [
+      { id: 'if-ap-up', name: 'Eth0', macAddress: '00:1A:2B:3C:6D:01', status: 'up' },
+      { id: 'if-ap-wlan0', name: 'Wlan0 (VLAN 50)', macAddress: '00:1A:2B:3C:6D:02', status: 'up' },
+      { id: 'if-ap-wlan1', name: 'Wlan1 (VLAN 80)', macAddress: '00:1A:2B:3C:6D:03', status: 'up' },
+    ],
+  },
+  // End-user Hosts
+  {
+    id: 'pc-cse-1',
+    name: 'CSE Lab PC-01',
+    type: 'host',
+    department: 'CSE',
+    role: 'Student Programming Workstation',
+    ipAddress: '10.10.0.50',
+    macAddress: 'AA:BB:CC:11:00:50',
+    vlanId: 10,
+    status: 'online',
+    position: { x: 80, y: 700 },
+    interfaces: [
+      { id: 'if-pccse1', name: 'eth0', ipAddress: '10.10.0.50', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:11:00:50', vlanId: 10, status: 'up' },
+    ],
+  },
+  {
+    id: 'pc-ece-1',
+    name: 'ECE Lab PC-01',
+    type: 'host',
+    department: 'ECE',
+    role: 'Signal Processing Workstation',
+    ipAddress: '10.20.0.50',
+    macAddress: 'AA:BB:CC:22:00:50',
+    vlanId: 20,
+    status: 'online',
+    position: { x: 220, y: 700 },
+    interfaces: [
+      { id: 'if-pcece1', name: 'eth0', ipAddress: '10.20.0.50', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:22:00:50', vlanId: 20, status: 'up' },
+    ],
+  },
+  {
+    id: 'pc-admin-1',
+    name: 'Admin PC (Accounts)',
+    type: 'host',
+    department: 'Administration',
+    role: 'Finance & Student Records Station',
+    ipAddress: '10.30.0.25',
+    macAddress: 'AA:BB:CC:33:00:25',
+    vlanId: 30,
+    status: 'online',
+    position: { x: 360, y: 700 },
+    interfaces: [
+      { id: 'if-pcadmin1', name: 'eth0', ipAddress: '10.30.0.25', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:33:00:25', vlanId: 30, status: 'up' },
+    ],
+  },
+  {
+    id: 'laptop-faculty-1',
+    name: 'Faculty Laptop',
+    type: 'host',
+    department: 'Faculty',
+    role: 'Faculty Research & Grading Machine',
+    ipAddress: '10.40.0.30',
+    macAddress: 'AA:BB:CC:44:00:30',
+    vlanId: 40,
+    status: 'online',
+    position: { x: 650, y: 700 },
+    interfaces: [
+      { id: 'if-fac1', name: 'wlan0', ipAddress: '10.40.0.30', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:44:00:30', vlanId: 40, status: 'up' },
+    ],
+  },
+  {
+    id: 'terminal-library-1',
+    name: 'Library OPAC Terminal',
+    type: 'host',
+    department: 'Library',
+    role: 'Public Catalogue & Journal Kiosk',
+    ipAddress: '10.60.0.20',
+    macAddress: 'AA:BB:CC:66:00:20',
+    vlanId: 60,
+    status: 'online',
+    position: { x: 780, y: 700 },
+    interfaces: [
+      { id: 'if-lib1', name: 'eth0', ipAddress: '10.60.0.20', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:66:00:20', vlanId: 60, status: 'up' },
+    ],
+  },
+  {
+    id: 'laptop-student-1',
+    name: 'Student Laptop (Wi-Fi)',
+    type: 'host',
+    department: 'Students',
+    role: 'BYOD Wireless Host',
+    ipAddress: '10.50.0.105',
+    macAddress: 'AA:BB:CC:55:01:05',
+    vlanId: 50,
+    status: 'online',
+    position: { x: 910, y: 700 },
+    interfaces: [
+      { id: 'if-stud1', name: 'wlan0', ipAddress: '10.50.0.105', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:55:01:05', vlanId: 50, status: 'up' },
+    ],
+  },
+  {
+    id: 'iot-sensor-1',
+    name: 'Smart Energy Sensor',
+    type: 'host',
+    department: 'IoT',
+    role: 'Substation Telemetry & Power Monitor',
+    ipAddress: '10.80.0.15',
+    macAddress: 'AA:BB:CC:88:00:15',
+    vlanId: 80,
+    status: 'online',
+    position: { x: 1040, y: 700 },
+    interfaces: [
+      { id: 'if-iot1', name: 'wlan0', ipAddress: '10.80.0.15', subnetMask: '255.255.255.0', macAddress: 'AA:BB:CC:88:00:15', vlanId: 80, status: 'up' },
+    ],
+  },
+  // Server Farm Nodes (VLAN 70)
+  {
+    id: 'srv-dhcp',
+    name: 'DHCP Server',
+    type: 'server',
+    department: 'Data Center',
+    role: 'Central Campus IP Lease Authority',
+    ipAddress: '10.70.0.10',
+    macAddress: 'EE:EE:70:00:00:10',
+    vlanId: 70,
+    status: 'online',
+    position: { x: 420, y: 580 },
+    interfaces: [
+      { id: 'if-srv-dhcp', name: 'eth0', ipAddress: '10.70.0.10', subnetMask: '255.255.255.0', macAddress: 'EE:EE:70:00:00:10', vlanId: 70, status: 'up' },
+    ],
+  },
+  {
+    id: 'srv-dns',
+    name: 'DNS Server',
+    type: 'server',
+    department: 'Data Center',
+    role: 'Authoritative & Recursive Campus DNS',
+    ipAddress: '10.70.0.11',
+    macAddress: 'EE:EE:70:00:00:11',
+    vlanId: 70,
+    status: 'online',
+    position: { x: 490, y: 580 },
+    interfaces: [
+      { id: 'if-srv-dns', name: 'eth0', ipAddress: '10.70.0.11', subnetMask: '255.255.255.0', macAddress: 'EE:EE:70:00:00:11', vlanId: 70, status: 'up' },
+    ],
+  },
+  {
+    id: 'srv-web',
+    name: 'Web Server (LMS/Portal)',
+    type: 'server',
+    department: 'Data Center',
+    role: 'Academic LMS & University Portal',
+    ipAddress: '10.70.0.12',
+    macAddress: 'EE:EE:70:00:00:12',
+    vlanId: 70,
+    status: 'online',
+    position: { x: 560, y: 580 },
+    interfaces: [
+      { id: 'if-srv-web', name: 'eth0', ipAddress: '10.70.0.12', subnetMask: '255.255.255.0', macAddress: 'EE:EE:70:00:00:12', vlanId: 70, status: 'up' },
+    ],
+  },
+  {
+    id: 'srv-ftp',
+    name: 'FTP Server',
+    type: 'server',
+    department: 'Data Center',
+    role: 'Academic File Repository & Software Mirror',
+    ipAddress: '10.70.0.13',
+    macAddress: 'EE:EE:70:00:00:13',
+    vlanId: 70,
+    status: 'online',
+    position: { x: 630, y: 580 },
+    interfaces: [
+      { id: 'if-srv-ftp', name: 'eth0', ipAddress: '10.70.0.13', subnetMask: '255.255.255.0', macAddress: 'EE:EE:70:00:00:13', vlanId: 70, status: 'up' },
+    ],
+  },
+];
+
+export const INITIAL_LINKS: NetworkLink[] = [
+  // WAN uplink
+  { id: 'link-isp-r1', sourceDeviceId: 'isp-gateway', targetDeviceId: 'router-r1', bandwidthMbps: 1000, latencyMs: 5, status: 'active', packetLossRate: 0.0, cost: 10 },
+  // Triangle core redundancy
+  { id: 'link-r1-r2', sourceDeviceId: 'router-r1', targetDeviceId: 'router-r2', bandwidthMbps: 10000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 5 },
+  { id: 'link-r2-r3', sourceDeviceId: 'router-r2', targetDeviceId: 'router-r3', bandwidthMbps: 10000, latencyMs: 2, status: 'active', packetLossRate: 0.0, cost: 5 },
+  { id: 'link-r1-r3', sourceDeviceId: 'router-r1', targetDeviceId: 'router-r3', bandwidthMbps: 10000, latencyMs: 2, status: 'active', packetLossRate: 0.0, cost: 12, isRedundant: true },
+  // Distribution links
+  { id: 'link-r2-swcore', sourceDeviceId: 'router-r2', targetDeviceId: 'sw-core', bandwidthMbps: 10000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 1 },
+  { id: 'link-r2-swserver', sourceDeviceId: 'router-r2', targetDeviceId: 'sw-server', bandwidthMbps: 10000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 1 },
+  { id: 'link-r3-swacademic', sourceDeviceId: 'router-r3', targetDeviceId: 'sw-academic', bandwidthMbps: 10000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 1 },
+  // Department access switch uplinks
+  { id: 'link-swcore-swcse', sourceDeviceId: 'sw-core', targetDeviceId: 'sw-cse', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 2 },
+  { id: 'link-swcore-swece', sourceDeviceId: 'sw-core', targetDeviceId: 'sw-ece', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 2 },
+  { id: 'link-swcore-swadmin', sourceDeviceId: 'sw-core', targetDeviceId: 'sw-admin', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0, cost: 2 },
+  { id: 'link-swacad-apcampus', sourceDeviceId: 'sw-academic', targetDeviceId: 'ap-campus', bandwidthMbps: 1000, latencyMs: 2, status: 'active', packetLossRate: 0.0, cost: 2 },
+  // Host links
+  { id: 'link-swcse-pccse1', sourceDeviceId: 'sw-cse', targetDeviceId: 'pc-cse-1', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swece-pcece1', sourceDeviceId: 'sw-ece', targetDeviceId: 'pc-ece-1', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swadmin-pcadmin1', sourceDeviceId: 'sw-admin', targetDeviceId: 'pc-admin-1', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swacad-fac1', sourceDeviceId: 'sw-academic', targetDeviceId: 'laptop-faculty-1', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swacad-lib1', sourceDeviceId: 'sw-academic', targetDeviceId: 'terminal-library-1', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-ap-stud1', sourceDeviceId: 'ap-campus', targetDeviceId: 'laptop-student-1', bandwidthMbps: 300, latencyMs: 4, status: 'active', packetLossRate: 0.01 },
+  { id: 'link-ap-iot1', sourceDeviceId: 'ap-campus', targetDeviceId: 'iot-sensor-1', bandwidthMbps: 54, latencyMs: 5, status: 'active', packetLossRate: 0.01 },
+  // Server farm links
+  { id: 'link-swsrv-dhcp', sourceDeviceId: 'sw-server', targetDeviceId: 'srv-dhcp', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swsrv-dns', sourceDeviceId: 'sw-server', targetDeviceId: 'srv-dns', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swsrv-web', sourceDeviceId: 'sw-server', targetDeviceId: 'srv-web', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+  { id: 'link-swsrv-ftp', sourceDeviceId: 'sw-server', targetDeviceId: 'srv-ftp', bandwidthMbps: 1000, latencyMs: 1, status: 'active', packetLossRate: 0.0 },
+];
+
+export const INITIAL_ACL_RULES: ACLRule[] = [
+  {
+    id: 'acl-10',
+    priority: 10,
+    description: 'Block IoT devices from accessing Administrative network (VLAN 30)',
+    sourceSubnet: '10.80.0.0/24',
+    destSubnet: '10.30.0.0/24',
+    protocol: 'ANY',
+    sourcePort: 'ANY',
+    destPort: 'ANY',
+    action: 'DENY',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-20',
+    priority: 20,
+    description: 'Block Student Wi-Fi (VLAN 50) from accessing Administrative network (VLAN 30)',
+    sourceSubnet: '10.50.0.0/24',
+    destSubnet: '10.30.0.0/24',
+    protocol: 'ANY',
+    sourcePort: 'ANY',
+    destPort: 'ANY',
+    action: 'DENY',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-30',
+    priority: 30,
+    description: 'Allow Student Wi-Fi (VLAN 50) HTTP/HTTPS access to Web Server (10.70.0.12)',
+    sourceSubnet: '10.50.0.0/24',
+    destSubnet: '10.70.0.12/32',
+    protocol: 'TCP',
+    sourcePort: 'ANY',
+    destPort: '80',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-31',
+    priority: 31,
+    description: 'Allow Student Wi-Fi (VLAN 50) HTTPS access to Web Server (10.70.0.12)',
+    sourceSubnet: '10.50.0.0/24',
+    destSubnet: '10.70.0.12/32',
+    protocol: 'TCP',
+    sourcePort: 'ANY',
+    destPort: '443',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-40',
+    priority: 40,
+    description: 'Allow All Subnets DNS queries (port 53 UDP) to Campus DNS Server',
+    sourceSubnet: 'ANY',
+    destSubnet: '10.70.0.11/32',
+    protocol: 'UDP',
+    sourcePort: 'ANY',
+    destPort: '53',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-50',
+    priority: 50,
+    description: 'Allow Student access to Library Kiosks (VLAN 60)',
+    sourceSubnet: '10.50.0.0/24',
+    destSubnet: '10.60.0.0/24',
+    protocol: 'ANY',
+    sourcePort: 'ANY',
+    destPort: 'ANY',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-60',
+    priority: 60,
+    description: 'Restrict Router/Switch SSH Management (port 22) to Network Mgmt VLAN 99 only',
+    sourceSubnet: '10.99.0.0/24',
+    destSubnet: 'ANY',
+    protocol: 'TCP',
+    sourcePort: 'ANY',
+    destPort: '22',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-61',
+    priority: 61,
+    description: 'Deny unauthorized SSH attempts to Campus Infrastructure',
+    sourceSubnet: 'ANY',
+    destSubnet: 'ANY',
+    protocol: 'TCP',
+    sourcePort: 'ANY',
+    destPort: '22',
+    action: 'DENY',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-70',
+    priority: 70,
+    description: 'Allow ICMP Echo Request/Reply (Ping) across internal campus for diagnostics',
+    sourceSubnet: '10.0.0.0/8',
+    destSubnet: '10.0.0.0/8',
+    protocol: 'ICMP',
+    sourcePort: 'ANY',
+    destPort: 'ANY',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+  {
+    id: 'acl-999',
+    priority: 999,
+    description: 'Default Campus Security Policy: Permit legitimate intra-campus and Internet traffic',
+    sourceSubnet: 'ANY',
+    destSubnet: 'ANY',
+    protocol: 'ANY',
+    sourcePort: 'ANY',
+    destPort: 'ANY',
+    action: 'ALLOW',
+    enabled: true,
+    hitCount: 0,
+  },
+];
+
+export const INITIAL_EXPERIMENTS: ExperimentRecord[] = [
+  {
+    id: 1,
+    title: 'Network Design, VLANs, IPv4/IPv6 Addressing, VLSM and DHCP Allocation',
+    aim: 'To design a hierarchical university campus network architecture using VLANs, VLSM addressing, dual-stack IPv4/IPv6, and dynamic host configuration via DHCP.',
+    theory: 'Virtual Local Area Networks (VLANs - IEEE 802.1Q) partition a physical network into logical broadcast domains, enhancing security, reducing broadcast storms, and easing administration. Variable Length Subnet Masking (VLSM) allows efficient IP address space allocation avoiding exhaustion. DHCP (Dynamic Host Configuration Protocol) automates host configuration using the DORA (Discover, Offer, Request, Acknowledge) cycle over UDP ports 67/68.',
+    requirements: ['Campus Core Switch', 'Edge/Core Routers R1, R2, R3', 'VLAN 802.1Q Trunking', 'DHCP Server daemon', 'IPv4 & IPv6 dual-stack addressing scheme'],
+    procedure: [
+      'Define VLAN boundaries (VLAN 10 through VLAN 99) based on departmental access policies.',
+      'Perform VLSM subnetting on 10.0.0.0/16 address space to assign dedicated /24 blocks to departments.',
+      'Configure 802.1Q trunking on inter-switch and router links.',
+      'Set up DHCP address pools with default gateway, subnet mask, and DNS server options.',
+      'Verify host IP acquisition and inter-VLAN routing through Layer 3 core gateways.',
+    ],
+    configuration: {
+      vlanCount: 9,
+      ipv4Parent: '10.0.0.0/16',
+      ipv6Prefix: '2001:db8:acad::/48',
+      dhcpPools: ['VLAN 10: 10.10.0.100 - 10.10.0.200', 'VLAN 50: 10.50.0.50 - 10.50.0.250'],
+    },
+    observations: {
+      interVlanIsolation: 'Broadcast packets strictly contained within originating VLAN',
+      addressEfficiency: 'VLSM achieved 94.2% address allocation efficiency without waste',
+      dhcpLeaseSuccess: '100% lease acquisition rate across all simulated client terminals',
+    },
+    results: {
+      vlsmSubnetsAllocated: 9,
+      dhcpResponseTimeAvgMs: 14.8,
+      vlanIsolationVerified: true,
+    },
+    conclusion: 'Hierarchical VLAN segmentation coupled with VLSM and centralized DHCP provides a scalable, secure, and easily manageable addressing foundation for the university campus.',
+    vivaQuestions: [
+      {
+        question: 'What is the purpose of IEEE 802.1Q frame tagging?',
+        answer: '802.1Q inserts a 4-byte VLAN tag into the standard Ethernet frame header, containing a 12-bit VLAN ID (VID) allowing switches to distinguish up to 4094 distinct VLANs across a shared trunk link.',
+      },
+      {
+        question: 'How does VLSM differ from traditional classful subnetting?',
+        answer: 'Traditional subnetting requires all subnets to share the exact same subnet mask size. VLSM allows variable prefix lengths (/24, /28, /30) to be assigned based on the exact host requirements of each branch, eliminating massive IP address waste.',
+      },
+      {
+        question: 'Explain the 4 stages of the DHCP DORA process.',
+        answer: '1. Discover: Client broadcasts to locate DHCP servers (UDP 67). 2. Offer: Server unicasts/broadcasts offered IP and lease params. 3. Request: Client broadcasts acceptance of the chosen offer. 4. Acknowledge (ACK): Server finalizes lease and confirms configuration.',
+      },
+      {
+        question: 'Why is dual-stack IPv4/IPv6 preferred over IPv6 tunneling for campus deployments?',
+        answer: 'Dual-stack runs IPv4 and IPv6 protocols simultaneously on the same physical interfaces, ensuring backward compatibility with legacy services without the encapsulation overhead, MTU issues, and complexity of tunneling.',
+      },
+    ],
+    status: 'completed',
+  },
+  {
+    id: 2,
+    title: 'Dynamic Routing Protocols (OSPF vs RIP), Shortest Path & Fault Recovery',
+    aim: 'To evaluate and compare convergence time, path cost, and fault recovery resilience between Link-State (OSPF) and Distance-Vector (RIP) routing protocols under link failure scenarios.',
+    theory: 'OSPF (Open Shortest Path First) utilizes Dijkstra\'s algorithm to build a complete topological map via Link State Advertisements (LSAs), calculating optimal routes based on bandwidth metrics ($10^8/BW$). RIP (Routing Information Protocol) uses Bellman-Ford distance-vector updates with hop count metrics (max 15). When a core link fails, OSPF converges rapidly (tens of milliseconds) via flooding, whereas RIP converges slowly (several seconds) due to periodic timers and count-to-infinity mitigation.',
+    requirements: ['Core Routers R1, R2, R3 in triangular mesh', 'Bandwidth metrics: 10Gbps Core vs 1Gbps Distribution', 'Link failure simulator', 'Convergence timer'],
+    procedure: [
+      'Initialize triangular core mesh topology (R1-R2, R2-R3, R1-R3).',
+      'Execute Dijkstra shortest path algorithm to establish baseline OSPF routing tables.',
+      'Simulate catastrophic failure on primary core link (R1-R2).',
+      'Observe dynamic alternate path selection via secondary router R3.',
+      'Measure simulated convergence time and packet drop counts for OSPF vs RIP.',
+    ],
+    configuration: {
+      topology: 'Redundant Triangle R1-R2-R3',
+      r1_r2_bandwidth: '10 Gbps (Cost = 5)',
+      r1_r3_bandwidth: '10 Gbps (Cost = 12)',
+      r2_r3_bandwidth: '10 Gbps (Cost = 5)',
+    },
+    observations: {
+      primaryPath: 'R1 -> R2 (Cost: 5)',
+      failoverPath: 'R1 -> R3 -> R2 (Cost: 17)',
+      ospfConvergenceMs: 42.5,
+      ripConvergenceMs: 3200.0,
+      packetLossDuringFailover: '0.4% (OSPF) vs 18.6% (RIP)',
+    },
+    results: {
+      failoverSuccessful: true,
+      convergenceRatio: 'OSPF is ~75x faster than RIP',
+      alternatePathSelected: ['router-r1', 'router-r3', 'router-r2'],
+    },
+    conclusion: 'OSPF provides significantly superior fault recovery and route recalculation compared to RIP, making it the industry standard for campus backbones where zero-downtime resilience is required.',
+    vivaQuestions: [
+      {
+        question: 'What is the formula used by OSPF to compute link cost?',
+        answer: 'Cost = Reference Bandwidth (default 100 Mbps or 10^8 bps) / Interface Bandwidth (bps). In high-speed gigabit networks, reference bandwidth is adjusted to 100 Gbps so 10G/1G links have distinct non-zero fractional costs.',
+      },
+      {
+        question: 'What is the Count-to-Infinity problem in Distance-Vector routing?',
+        answer: 'When a link fails, two routers may continuously bounce incremented hop counts off each other believing the other has an alternate path, until the hop metric reaches infinity (16 in RIP). It is mitigated with Split Horizon and Poison Reverse.',
+      },
+      {
+        question: 'How does Dijkstra\'s algorithm compute the shortest path tree?',
+        answer: 'Dijkstra maintains a set of visited nodes and tentative shortest distances from the source. At each step, it visits the unvisited node with the lowest tentative distance, relaxes all its outgoing edges, and updates neighbor distances until all reachable nodes are finalized.',
+      },
+    ],
+    status: 'completed',
+  },
+  {
+    id: 3,
+    title: 'Application Layer Services, Enterprise DNS, Web, FTP, Mail & NAT/PAT',
+    aim: 'To simulate and analyze core application layer protocols (HTTP, DNS, FTP, SMTP/POP3) and Network Address Translation (NAT/PAT) in an enterprise campus environment.',
+    theory: 'Application layer protocols provide user-facing services across the TCP/IP stack. DNS translates human-readable FQDNs into IP addresses via UDP 53. HTTP facilitates stateless hypermedia retrieval via TCP 80/443. FTP utilizes dual channels (TCP 21 control, TCP 20 data). NAT/PAT (Port Address Translation) maps thousands of private RFC 1918 addresses (10.0.0.0/8) to public routable IPv4 addresses using ephemeral source ports.',
+    requirements: ['Campus Server Farm', 'Authoritative DNS daemon', 'HTTP/HTTPS server', 'FTP server', 'Mail relay daemon', 'NAT border gateway'],
+    procedure: [
+      'Configure campus DNS domain records (e.g. portal.campus.edu -> 10.70.0.12).',
+      'Execute recursive DNS resolution from Student client workstation.',
+      'Simulate HTTP GET request to campus LMS portal with header analysis.',
+      'Initiate FTP active mode file transfer session with user authentication.',
+      'Simulate outbound Internet access through Edge Router NAT/PAT translation engine.',
+    ],
+    configuration: {
+      dnsZone: 'campus.edu',
+      records: [
+        'portal.campus.edu -> 10.70.0.12 (A)',
+        'mail.campus.edu -> 10.70.0.14 (A)',
+        'ftp.campus.edu -> 10.70.0.13 (A)',
+      ],
+      natPublicPool: '203.0.113.2',
+    },
+    observations: {
+      dnsQueryLatencyMs: 3.2,
+      httpStatusCode: '200 OK',
+      ftpTransferRateMbps: 840,
+      natTranslationCreated: '10.50.0.105:49152 -> 203.0.113.2:10045',
+    },
+    results: {
+      dnsResolutionSuccess: true,
+      httpTransferSuccess: true,
+      natOverloadSuccess: true,
+    },
+    conclusion: 'Centralized server farm architecture combined with NAT/PAT border translation guarantees seamless internal campus operations while conserving precious public IPv4 addressing.',
+    vivaQuestions: [
+      {
+        question: 'Why does DNS primarily use UDP port 53 instead of TCP?',
+        answer: 'DNS queries and responses are typically small (under 512 bytes) and require low latency. UDP avoids the 3-way TCP handshake overhead. TCP is only used for zone transfers (AXFR) or responses exceeding 512 bytes (EDNS0).',
+      },
+      {
+        question: 'What is the fundamental difference between NAT and PAT (Port Address Translation)?',
+        answer: 'Static/Dynamic NAT maps one private IP to one public IP (1:1), requiring a pool of public IPs. PAT (NAT Overload) maps multiple private IPs to a single public IP by tracking unique Layer 4 source port numbers (many:1).',
+      },
+      {
+        question: 'Why does FTP require two separate TCP port connections?',
+        answer: 'FTP separates control commands (authentication, navigation on port 21) from actual data transfers (directory listings, file upload/download on port 20 or passive ports). This allows control commands to be issued without interrupting an ongoing bulk transfer.',
+      },
+    ],
+    status: 'completed',
+  },
+  {
+    id: 4,
+    title: 'Network Security Policies, First-Match ACLs, Congestion & QoS Prioritization',
+    aim: 'To enforce campus security zoning using Access Control Lists (ACLs) and measure QoS traffic shaping (Strict Priority Queueing) under heavy link congestion.',
+    theory: 'Network security relies on least-privilege segmentation. Access Control Lists (ACLs) sequentially evaluate packet headers (Source IP, Destination IP, Protocol, Port) using first-match logic with an implicit deny. Quality of Service (QoS) guarantees network resources for delay-sensitive applications (Voice/Video) over bulk traffic (FTP/BitTorrent) through Weighted Fair Queueing or Priority Queueing during network congestion.',
+    requirements: ['ACL Packet Inspection Engine', 'Strict Priority Queue scheduler', 'Synthetic traffic generator', 'Congestion tester'],
+    procedure: [
+      'Define security zoning rules restricting untrusted subnets (Student/IoT) from Administrative core.',
+      'Test packet inspection engine with permitted and forbidden traffic flows.',
+      'Inject high offered load (120% link capacity) combining Voice (High), Web (Medium), and FTP (Low).',
+      'Compare throughput, packet drop rates, and latency with and without QoS prioritization.',
+    ],
+    configuration: {
+      linkCapacity: '100 Mbps',
+      offeredLoad: '135 Mbps (Over-subscribed)',
+      trafficMix: 'Voice: 20 Mbps, Web: 35 Mbps, Bulk: 80 Mbps',
+    },
+    observations: {
+      unauthorizedAccessBlocked: '100% of Student -> Admin traffic blocked by Rule 20',
+      withoutQosLoss: 'Voice Loss: 26.4%, Web Loss: 25.8%, Bulk Loss: 26.1%',
+      withQosLoss: 'Voice Loss: 0.0%, Web Loss: 1.2%, Bulk Loss: 42.5%',
+      voiceLatencyReduction: 'Dropped from 84.5ms to 4.2ms with Strict Priority Queueing',
+    },
+    results: {
+      aclSecurityEnforced: true,
+      qosImprovementVoiceLossPercent: 26.4,
+      qosDelayReductionMs: 80.3,
+    },
+    conclusion: 'Properly sequenced ACL rules successfully isolate critical university infrastructure, while QoS priority queueing preserves real-time multimedia flows even during heavy link congestion.',
+    vivaQuestions: [
+      {
+        question: 'Why does the order of rules matter in an Access Control List?',
+        answer: 'ACLs use first-match evaluation: as soon as a packet matches a rule\'s criteria, the action (ALLOW or DENY) is immediately executed and subsequent rules are never evaluated. A generic rule placed before a specific rule will overshadow it.',
+      },
+      {
+        question: 'What is the purpose of the Implicit Deny at the end of an ACL?',
+        answer: 'By security convention, any packet that does not match any explicitly configured rule in the ACL is automatically dropped. This adheres to the principle of "default deny / zero trust".',
+      },
+      {
+        question: 'Explain the difference between Packet Shaping and Packet Policing.',
+        answer: 'Policing drops or re-marks packets that exceed the configured traffic rate immediately, causing TCP retransmissions. Shaping buffers excess packets in memory queues to smooth out bursty traffic and transmit at a steady rate.',
+      },
+    ],
+    status: 'completed',
+  },
+  {
+    id: 5,
+    title: 'Data Link Layer: Error Detection (CRC/Checksum), Correction (Hamming), ARQ & MAC',
+    aim: 'To simulate, analyze, and implement core data link layer algorithms including Cyclic Redundancy Check (CRC), 16-bit Internet Checksum, Hamming Code (7,4), Sliding Window ARQ (Go-Back-N & Selective Repeat), and Medium Access Control (ALOHA & CSMA/CD).',
+    theory: 'The Data Link Layer ensures reliable point-to-point frame delivery. Error detection (CRC modulo-2 division, Checksum 1\'s complement) detects corrupted bits. Hamming Code introduces redundant parity bits at powers of 2 ($2^p \\ge m + p + 1$) to detect and correct single-bit errors. ARQ protocols manage flow and error recovery. Multiple Access protocols coordinate shared channel usage (ALOHA max throughput $18.4\\%$, Slotted ALOHA $36.8\\%$, CSMA/CD with binary exponential backoff).',
+    requirements: ['CRC Generator & Checker', 'Hamming Code (7,4) Engine', '16-bit Checksum Engine', 'Go-Back-N / Selective Repeat Simulator', 'ALOHA & CSMA/CD simulator', 'Compilable C source programs'],
+    procedure: [
+      'Encode 4-bit data words into 7-bit Hamming codewords with parity bits at positions 1, 2, and 4.',
+      'Inject 1-bit error and observe syndrome vector $S = s_3 s_2 s_1$ pinpointing and fixing the exact flipped bit.',
+      'Perform binary modulo-2 polynomial division on input data using standard generator polynomials.',
+      'Simulate Go-Back-N vs Selective Repeat under 20% packet loss and compare retransmission overhead.',
+      'Simulate Pure ALOHA vs Slotted ALOHA channel utilization over varying Poisson arrival rates ($G$).',
+      'Verify execution with standalone ANSI C programs.',
+    ],
+    configuration: {
+      crcPolynomial: '1101 (CRC-3) & 10001000000100001 (CRC-16)',
+      hammingCode: '7,4 Systematic Hamming Code',
+      arqWindowSize: 4,
+    },
+    observations: {
+      hammingCorrection: '100% single bit errors detected and corrected via syndrome index',
+      crcDetectionRatio: '100% burst errors <= degree of polynomial detected',
+      srEfficiencyVsGbn: 'Selective Repeat transmitted 38% fewer frames than Go-Back-N under 20% packet loss',
+      alohaMaxThroughput: 'Pure ALOHA peaked at G=0.5 (S=0.184), Slotted ALOHA peaked at G=1.0 (S=0.368)',
+    },
+    results: {
+      allProtocolsVerified: true,
+      cProgramsAvailable: true,
+      syndromeCalculationAccurate: true,
+    },
+    conclusion: 'Mathematical error control and adaptive sliding window protocols form the bedrock of robust network communication, and medium access protocols optimize channel throughput in shared broadcast media.',
+    vivaQuestions: [
+      {
+        question: 'How are parity bit positions determined in Hamming (7,4) code?',
+        answer: 'Parity bits are placed at bit positions that are powers of 2: bit 1 (2^0), bit 2 (2^1), and bit 4 (2^2). The remaining positions (3, 5, 6, 7) are filled with the 4 data bits.',
+      },
+      {
+        question: 'Why is modulo-2 division used in CRC instead of standard arithmetic division?',
+        answer: 'Modulo-2 arithmetic corresponds to bitwise XOR operations without carries or borrows, making it extremely fast and simple to implement in hardware shift registers and software bitwise operations.',
+      },
+      {
+        question: 'What is the receiver window size in Go-Back-N versus Selective Repeat?',
+        answer: 'In Go-Back-N, the receiver window is strictly 1 (it only accepts in-order frames). In Selective Repeat, the receiver window equals the sender window ($W \\le 2^{m-1}$), allowing out-of-order frames to be buffered until missing frames arrive.',
+      },
+      {
+        question: 'Why is Pure ALOHA\'s maximum throughput half that of Slotted ALOHA?',
+        answer: 'Pure ALOHA has a vulnerable period of 2 frame transmission times (2T), yielding max throughput S = 1/(2e) ≈ 18.4% at G = 0.5. Slotted ALOHA restricts transmissions to discrete time slots, halving the vulnerable period to T, yielding max throughput S = 1/e ≈ 36.8% at G = 1.0.',
+      },
+    ],
+    status: 'completed',
+  },
+];
+
+export function seedDemoData(): void {
+  // Clear existing
+  execute('DELETE FROM devices;');
+  execute('DELETE FROM links;');
+  execute('DELETE FROM vlans;');
+  execute('DELETE FROM acl_rules;');
+  execute('DELETE FROM experiments;');
+
+  // Insert VLANs
+  for (const vlan of INITIAL_VLANS) {
+    execute(
+      `INSERT INTO vlans (id, name, department, ipv4_subnet, ipv4_gateway, ipv6_subnet, ipv6_gateway, description, color)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [vlan.id, vlan.name, vlan.department, vlan.ipv4Subnet, vlan.ipv4Gateway, vlan.ipv6Subnet, vlan.ipv6Gateway, vlan.description, vlan.color]
+    );
+  }
+
+  // Insert Devices
+  for (const dev of INITIAL_DEVICES) {
+    execute(
+      `INSERT INTO devices (id, name, type, department, role, ip_address, mac_address, vlan_id, status, interfaces_json, position_x, position_y, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        dev.id,
+        dev.name,
+        dev.type,
+        dev.department || null,
+        dev.role,
+        dev.ipAddress || null,
+        dev.macAddress || null,
+        dev.vlanId || null,
+        dev.status,
+        JSON.stringify(dev.interfaces),
+        dev.position.x,
+        dev.position.y,
+        dev.notes || null,
+      ]
+    );
+  }
+
+  // Insert Links
+  for (const link of INITIAL_LINKS) {
+    execute(
+      `INSERT INTO links (id, source_device_id, source_interface_id, target_device_id, target_interface_id, bandwidth_mbps, latency_ms, status, packet_loss_rate, cost, is_redundant)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        link.id,
+        link.sourceDeviceId,
+        link.sourceInterfaceId || null,
+        link.targetDeviceId,
+        link.targetInterfaceId || null,
+        link.bandwidthMbps,
+        link.latencyMs,
+        link.status,
+        link.packetLossRate,
+        link.cost || null,
+        link.isRedundant ? 1 : 0,
+      ]
+    );
+  }
+
+  // Insert ACL Rules
+  for (const acl of INITIAL_ACL_RULES) {
+    execute(
+      `INSERT INTO acl_rules (id, priority, description, source_subnet, dest_subnet, protocol, source_port, dest_port, action, enabled, hit_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        acl.id,
+        acl.priority,
+        acl.description,
+        acl.sourceSubnet,
+        acl.destSubnet,
+        acl.protocol,
+        acl.sourcePort || null,
+        acl.destPort || null,
+        acl.action,
+        acl.enabled ? 1 : 0,
+        acl.hitCount,
+      ]
+    );
+  }
+
+  // Insert Experiments
+  for (const exp of INITIAL_EXPERIMENTS) {
+    execute(
+      `INSERT INTO experiments (id, title, aim, theory, requirements_json, procedure_json, configuration_json, observations_json, results_json, conclusion, viva_questions_json, status, last_run_timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        exp.id,
+        exp.title,
+        exp.aim,
+        exp.theory,
+        JSON.stringify(exp.requirements),
+        JSON.stringify(exp.procedure),
+        JSON.stringify(exp.configuration),
+        JSON.stringify(exp.observations),
+        JSON.stringify(exp.results),
+        exp.conclusion,
+        JSON.stringify(exp.vivaQuestions),
+        exp.status,
+        new Date().toISOString(),
+      ]
+    );
+  }
+
+  console.log('Successfully seeded demo campus network data into SQLite!');
+}

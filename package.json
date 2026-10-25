@@ -1,0 +1,25 @@
+{
+  "name": "smart-campus-network",
+  "version": "1.0.0",
+  "description": "Design and Performance Analysis of a Secure, Fault-Tolerant Smart Campus Network",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd backend && npm run build && cd ../frontend && npm run build",
+    "test": "cd backend && npm test",
+    "start": "cd backend && npm start"
+  },
+  "keywords": [
+    "network-simulation",
+    "smart-campus",
+    "ospf",
+    "rip",
+    "vlan",
+    "acl",
+    "qos",
+    "packet-tracer"
+  ],
+  "author": "Antigravity Autonomous Engineer",
+  "license": "MIT"
+}

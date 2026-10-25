@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-noc-bg text-noc-text antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Custom scrollbar for NOC dashboard */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090D16;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E293B;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Pulse animation for active packets */
+@keyframes packet-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px #06B6D4); }
+  50% { filter: drop-shadow(0 0 12px #3B82F6); }
+}
+
+.packet-pulse {
+  animation: packet-glow 1.5s infinite;
+}
